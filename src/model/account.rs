@@ -53,6 +53,7 @@ pub enum TxError {
 #[derive(Serialize)]
 #[serde(rename_all = "lowercase")]
 pub struct Account {
+    #[serde(rename(serialize = "client"))]
     pub client_id: u16,
     #[serde(rename(serialize = "available"))]
     pub available_amount: Decimal,
@@ -319,4 +320,48 @@ enum DepositStatus {
 struct Deposit {
     amount: Decimal,
     status: DepositStatus,
+}
+
+#[cfg(test)]
+mod test {
+    use rust_decimal::Decimal;
+    use std::str::FromStr;
+
+    use crate::model::{Account, Transaction};
+
+    #[test]
+    fn test_deposit_invalid_amount() {
+        let client_id = 1;
+
+        let mut deposit = Transaction {
+            r#type: crate::model::TxType::Deposit,
+            client_id,
+            tx_id: 1,
+            amount: Some(Decimal::from(0i16)),
+        };
+
+        let mut acct = Account::new(client_id);
+
+        assert!(acct.on_tx(&deposit).is_err());
+
+        deposit.amount = Some(Decimal::from_str("-0.001").unwrap());
+        assert!(acct.on_tx(&deposit).is_err());
+    }
+
+    #[test]
+    fn test_deposit_duplicate() {
+        let client_id = 1;
+
+        let deposit = Transaction {
+            r#type: crate::model::TxType::Deposit,
+            client_id,
+            tx_id: 1,
+            amount: Some(Decimal::from(1i16)),
+        };
+
+        let mut acct = Account::new(client_id);
+
+        assert!(!acct.on_tx(&deposit).is_err());
+        assert!(acct.on_tx(&deposit).is_err());
+    }
 }

@@ -8,7 +8,7 @@ use anyhow::*;
 use csv::Reader;
 use log::*;
 
-use bookkeeper::model::Bookkeeper;
+use bkeeper::model::Bookkeeper;
 
 fn main() -> Result<()> {
     env_logger::builder().format_timestamp_nanos().target(env_logger::Target::Stdout).init();
