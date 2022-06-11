@@ -5,9 +5,7 @@ use std::{
 
 use log::*;
 
-use crate::model::TxType;
-
-use super::{Account, Transaction, TxError};
+use super::{Account, Transaction, TxError, TxType};
 
 const DEFAULT_ACCOUNT_COUNT: usize = 4086;
 pub struct Bookkeeper {

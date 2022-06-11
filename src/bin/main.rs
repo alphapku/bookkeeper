@@ -40,7 +40,7 @@ fn main() -> Result<()> {
 }
 
 fn print_usage() {
-    info!("bookkeeper input.csv\nor\ncargo run -- input.csv")
+    info!("bkeeper transactions.csv\nor\ncargo run -- transactions.csv > accounts.csv")
 }
 
 fn get_first_arg() -> Result<OsString> {
