@@ -111,7 +111,7 @@ impl Account {
                     tx.tx_id,
                     Deposit {
                         amount,
-                        status: DepositStatus::StatusNone,
+                        status: DepositStatus::Normal,
                     },
                 );
 
@@ -154,7 +154,7 @@ impl Account {
 
         if let Some(new_held) = self.held_amount.checked_add(amount) {
             if let Some(new_available) = self.available_amount.checked_sub(amount) {
-                deposit.status = DepositStatus::StatusDisputed;
+                deposit.status = DepositStatus::Disputed;
                 self.held_amount = new_held;
                 self.available_amount = new_available;
                 return Ok(());
@@ -176,7 +176,7 @@ impl Account {
             if let Some(new_available) = self.available_amount.checked_add(amount) {
                 self.held_amount = new_held;
                 self.available_amount = new_available;
-                deposit.status = DepositStatus::StatusResolved;
+                deposit.status = DepositStatus::Resolved;
                 return Ok(());
             }
         }
@@ -196,7 +196,7 @@ impl Account {
             if let Some(new_total) = self.total_amount.checked_sub(amount) {
                 self.held_amount = new_held;
                 self.total_amount = new_total;
-                deposit.status = DepositStatus::StatusChargedBack;
+                deposit.status = DepositStatus::ChargedBack;
                 self.locked = true; // TODO, how to unlock?
             }
         }
@@ -253,7 +253,7 @@ impl Account {
             return Ok(amount);
         }
 
-        return Err(TxError::MissingAmountError);
+        Err(TxError::MissingAmountError)
     }
 
     fn adjust_scale(amt: &Decimal) -> Decimal {
@@ -268,14 +268,14 @@ impl Account {
         debug_assert!(tx.r#type == TxType::Dispute);
 
         if let Some(deposit) = history.get_mut(&tx.tx_id) {
-            if deposit.status != DepositStatus::StatusNone {
+            if deposit.status != DepositStatus::Normal {
                 return Err(TxError::InvalidOperatioonError);
             }
 
             return Ok(deposit);
         }
 
-        return Err(TxError::InvalidTxIdError);
+        Err(TxError::InvalidTxIdError)
     }
 
     /// For simplicity, we dont check if it's duplciate or not. In prod, this could be done through a database.
@@ -283,14 +283,14 @@ impl Account {
         debug_assert!(tx.r#type == TxType::Resolve);
 
         if let Some(deposit) = history.get_mut(&tx.tx_id) {
-            if deposit.status != DepositStatus::StatusDisputed {
+            if deposit.status != DepositStatus::Disputed {
                 return Err(TxError::InvalidOperatioonError);
             }
 
             return Ok(deposit);
         }
 
-        return Err(TxError::InvalidTxIdError);
+        Err(TxError::InvalidTxIdError)
     }
 
     /// For simplicity, we dont check if it's duplciate or not. In prod, this could be done through a database.
@@ -298,23 +298,23 @@ impl Account {
         debug_assert!(tx.r#type == TxType::ChargeBack);
 
         if let Some(deposit) = history.get_mut(&tx.tx_id) {
-            if deposit.status != DepositStatus::StatusDisputed {
+            if deposit.status != DepositStatus::Disputed {
                 return Err(TxError::InvalidOperatioonError);
             }
 
             return Ok(deposit);
         }
 
-        return Err(TxError::InvalidTxIdError);
+        Err(TxError::InvalidTxIdError)
     }
 }
 
 #[derive(PartialEq)]
 enum DepositStatus {
-    StatusNone,
-    StatusDisputed,
-    StatusResolved,
-    StatusChargedBack,
+    Normal,
+    Disputed,
+    Resolved,
+    ChargedBack,
 }
 
 struct Deposit {
@@ -361,7 +361,7 @@ mod test {
 
         let mut acct = Account::new(client_id);
 
-        assert!(!acct.on_tx(&deposit).is_err());
+        assert!(acct.on_tx(&deposit).is_ok());
         assert!(acct.on_tx(&deposit).is_err());
     }
 }

@@ -12,8 +12,7 @@ use bkeeper::model::Bookkeeper;
 
 fn main() -> Result<()> {
     env_logger::builder().format_timestamp_nanos().target(env_logger::Target::Stdout).init();
-    let args: Vec<String> = env::args().collect();
-    if args.len() != 2 {
+    if env::args().count() != 2 {
         print_usage();
         return Ok(());
     }
@@ -23,7 +22,7 @@ fn main() -> Result<()> {
     let mut raw_record = csv::StringRecord::new();
     let headers = reader.headers()?.clone();
 
-    let mut keeper = Bookkeeper::new();
+    let mut keeper = Bookkeeper::default();
     while reader.read_record(&mut raw_record)? {
         match raw_record.deserialize(Some(&headers)) {
             Ok(tx) => {

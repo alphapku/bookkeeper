@@ -44,12 +44,18 @@ impl Bookkeeper {
 
         let mut writer = csv::Writer::from_writer(io::stdout());
 
-        for (_, acct) in &self.accounts {
-            writer.serialize(acct).map_err(|e| TxError::InvalidTxError(e))?;
+        for acct in self.accounts.values() {
+            writer.serialize(acct).map_err(TxError::InvalidTxError)?;
         }
 
-        writer.flush().map_err(|e| TxError::TxIoError(e))?;
+        writer.flush().map_err(TxError::TxIoError)?;
 
         Ok(())
+    }
+}
+
+impl Default for Bookkeeper {
+    fn default() -> Self {
+        Self::new()
     }
 }

@@ -11,8 +11,6 @@ pub enum TxType {
     ChargeBack,
 }
 
-const MAX_AMOUNT_SCALE: u32 = 4;
-
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "lowercase")]
 pub struct Transaction {
