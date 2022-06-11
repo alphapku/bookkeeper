@@ -1,15 +1,12 @@
 use core::result::Result::Ok;
-use std::env;
-use std::ffi::OsString;
+
 use std::fs::File;
-use std::io::{BufRead, BufReader, Read};
+use std::io::BufReader;
 
 use anyhow::*;
 use bookkeeper::model::Bookkeeper;
-use csv::Reader;
-use log::*;
 
-use bookkeeper::model;
+use log::*;
 
 fn main() -> Result<()> {
     env_logger::builder().format_timestamp_nanos().target(env_logger::Target::Stdout).init();

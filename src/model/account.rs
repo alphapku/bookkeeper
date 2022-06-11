@@ -203,13 +203,13 @@ impl Account {
         Err(TxError::InvalidAmountError)
     }
 
-    fn validate_deposit(&mut self, tx: &Transaction) -> Result<Decimal, TxError> {
+    fn validate_deposit(&mut self, _tx: &Transaction) -> Result<Decimal, TxError> {
         Ok(Decimal::ZERO)
     }
 
     /// For simplicity, no check for duplicate withdrawal as we don't keep their history.
     /// It should be done through a database in Prod.
-    fn validate_withdraw(&mut self, tx: &Transaction) -> Result<Decimal, TxError> {
+    fn validate_withdraw(&mut self, _tx: &Transaction) -> Result<Decimal, TxError> {
         Ok(Decimal::ZERO)
     }
 
@@ -230,19 +230,19 @@ impl Account {
 
     /// For simplicity, no checks for dispute as we don't keep their history.
     /// It should be done through a database in Prod.
-    fn validate_dispute<'a>(history: &'a mut HashMap<u32, Deposit>, tx: &Transaction) -> Result<&'a mut Deposit, TxError> {
+    fn validate_dispute<'a>(_history: &'a mut HashMap<u32, Deposit>, _tx: &Transaction) -> Result<&'a mut Deposit, TxError> {
         todo!()
     }
 
     /// For simplicity, no checks for resolve as we don't keep their history.
     /// It should be done through a database in Prod.
-    fn validate_resolve<'a>(history: &'a mut HashMap<u32, Deposit>, tx: &Transaction) -> Result<&'a mut Deposit, TxError> {
+    fn validate_resolve<'a>(_history: &'a mut HashMap<u32, Deposit>, _tx: &Transaction) -> Result<&'a mut Deposit, TxError> {
         todo!()
     }
 
     /// For simplicity, no checks for chargeback as we don't keep their history.
     /// It should be done through a database in Prod.
-    fn validate_chargeback<'a>(history: &'a mut HashMap<u32, Deposit>, tx: &Transaction) -> Result<&'a mut Deposit, TxError> {
+    fn validate_chargeback<'a>(_history: &'a mut HashMap<u32, Deposit>, tx: &Transaction) -> Result<&'a mut Deposit, TxError> {
         debug_assert!(tx.r#type == TxType::ChargeBack);
 
         todo!()
