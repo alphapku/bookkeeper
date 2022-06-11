@@ -175,7 +175,7 @@ impl Account {
             if let Some(new_available) = self.available_amount.checked_add(amount) {
                 self.held_amount = new_held;
                 self.available_amount = new_available;
-                deposit.status = DepositStatus::StatusNone;
+                deposit.status = DepositStatus::StatusResolved;
                 return Ok(());
             }
         }
@@ -203,14 +203,34 @@ impl Account {
         Err(TxError::InvalidAmountError)
     }
 
-    fn validate_deposit(&mut self, _tx: &Transaction) -> Result<Decimal, TxError> {
-        Ok(Decimal::ZERO)
+    /// For simplicity, we dont check if it's duplciate or not. In prod, this could be done through a database.
+    fn validate_deposit(&mut self, tx: &Transaction) -> Result<Decimal, TxError> {
+        debug_assert!(tx.r#type == TxType::Deposit);
+
+        let amount = Self::validate_amount(tx)?;
+
+        if self.deposit_history.contains_key(&tx.tx_id) {
+            return Err(TxError::InvalidTxIdError);
+        }
+
+        debug!("checking {} for {}", tx.client_id, tx.tx_id);
+
+        Ok(amount)
     }
 
-    /// For simplicity, no check for duplicate withdrawal as we don't keep their history.
-    /// It should be done through a database in Prod.
-    fn validate_withdraw(&mut self, _tx: &Transaction) -> Result<Decimal, TxError> {
-        Ok(Decimal::ZERO)
+    /// For simplicity, we dont check if it's duplciate or not. In prod, this could be done through a database.
+    fn validate_withdraw(&mut self, tx: &Transaction) -> Result<Decimal, TxError> {
+        debug_assert!(tx.r#type == TxType::Withdrawal);
+
+        let amount = Self::validate_amount(tx)?;
+
+        if amount < self.available_amount {
+            return Err(TxError::InvalidAmountError);
+        }
+
+        // available_amount is alwayas <= total_amount, so we don't need to check total
+
+        Ok(amount)
     }
 
     fn validate_account(&mut self) -> Result<(), TxError> {
@@ -221,6 +241,20 @@ impl Account {
         Ok(())
     }
 
+    fn validate_amount(tx: &Transaction) -> Result<Decimal, TxError> {
+        debug_assert!(tx.r#type == TxType::Deposit || tx.r#type == TxType::Withdrawal);
+
+        if let Some(amount) = tx.amount {
+            if amount <= Decimal::ZERO {
+                return Err(TxError::InvalidAmountError);
+            }
+
+            return Ok(amount);
+        }
+
+        return Err(TxError::MissingAmountError);
+    }
+
     fn adjust_scale(amt: &Decimal) -> Decimal {
         // for simplity, we adjust for all, without checking if its decimal palces are great than 4 or not
         let mut ret = *amt;
@@ -228,24 +262,49 @@ impl Account {
         ret
     }
 
-    /// For simplicity, no checks for dispute as we don't keep their history.
-    /// It should be done through a database in Prod.
-    fn validate_dispute<'a>(_history: &'a mut HashMap<u32, Deposit>, _tx: &Transaction) -> Result<&'a mut Deposit, TxError> {
-        todo!()
+    /// For simplicity, we dont check if it's duplciate or not. In prod, this could be done through a database.
+    fn validate_dispute<'a>(history: &'a mut HashMap<u32, Deposit>, tx: &Transaction) -> Result<&'a mut Deposit, TxError> {
+        debug_assert!(tx.r#type == TxType::Dispute);
+
+        if let Some(deposit) = history.get_mut(&tx.tx_id) {
+            if deposit.status != DepositStatus::StatusNone {
+                return Err(TxError::InvalidOperatioonError);
+            }
+
+            return Ok(deposit);
+        }
+
+        return Err(TxError::InvalidTxIdError);
     }
 
-    /// For simplicity, no checks for resolve as we don't keep their history.
-    /// It should be done through a database in Prod.
-    fn validate_resolve<'a>(_history: &'a mut HashMap<u32, Deposit>, _tx: &Transaction) -> Result<&'a mut Deposit, TxError> {
-        todo!()
+    /// For simplicity, we dont check if it's duplciate or not. In prod, this could be done through a database.
+    fn validate_resolve<'a>(history: &'a mut HashMap<u32, Deposit>, tx: &Transaction) -> Result<&'a mut Deposit, TxError> {
+        debug_assert!(tx.r#type == TxType::Resolve);
+
+        if let Some(deposit) = history.get_mut(&tx.tx_id) {
+            if deposit.status != DepositStatus::StatusDisputed {
+                return Err(TxError::InvalidOperatioonError);
+            }
+
+            return Ok(deposit);
+        }
+
+        return Err(TxError::InvalidTxIdError);
     }
 
-    /// For simplicity, no checks for chargeback as we don't keep their history.
-    /// It should be done through a database in Prod.
-    fn validate_chargeback<'a>(_history: &'a mut HashMap<u32, Deposit>, tx: &Transaction) -> Result<&'a mut Deposit, TxError> {
+    /// For simplicity, we dont check if it's duplciate or not. In prod, this could be done through a database.
+    fn validate_chargeback<'a>(history: &'a mut HashMap<u32, Deposit>, tx: &Transaction) -> Result<&'a mut Deposit, TxError> {
         debug_assert!(tx.r#type == TxType::ChargeBack);
 
-        todo!()
+        if let Some(deposit) = history.get_mut(&tx.tx_id) {
+            if deposit.status != DepositStatus::StatusDisputed {
+                return Err(TxError::InvalidOperatioonError);
+            }
+
+            return Ok(deposit);
+        }
+
+        return Err(TxError::InvalidTxIdError);
     }
 }
 

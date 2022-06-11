@@ -1,17 +1,24 @@
 use core::result::Result::Ok;
-
+use std::env;
+use std::ffi::OsString;
 use std::fs::File;
-use std::io::BufReader;
+use std::io::{BufRead, BufReader, Error, ErrorKind, Read};
 
 use anyhow::*;
-use bookkeeper::model::Bookkeeper;
-
+use csv::Reader;
 use log::*;
+
+use bookkeeper::model::Bookkeeper;
 
 fn main() -> Result<()> {
     env_logger::builder().format_timestamp_nanos().target(env_logger::Target::Stdout).init();
+    let args: Vec<String> = env::args().collect();
+    if args.len() != 2 {
+        print_usage();
+        return Ok(());
+    }
 
-    let f = File::open("tx0.csv")?;
+    let f = File::open(get_first_arg()?)?;
     let mut reader = csv::ReaderBuilder::new().trim(csv::Trim::All).from_reader(BufReader::new(f));
     let mut raw_record = csv::StringRecord::new();
     let headers = reader.headers()?.clone();
@@ -30,7 +37,19 @@ fn main() -> Result<()> {
 
     keeper.report_balance()?;
 
-    info!("Hello, world!");
-
     Ok(())
+}
+
+fn print_usage() {
+    info!("bookkeeper input.csv\nor\ncargo run -- input.csv")
+}
+
+fn get_first_arg() -> Result<OsString> {
+    match env::args_os().nth(1) {
+        None => Err(anyhow::Error::new(Error::new(
+            ErrorKind::InvalidData,
+            "the input file is not represented",
+        ))),
+        Some(file_path) => Ok(file_path),
+    }
 }
