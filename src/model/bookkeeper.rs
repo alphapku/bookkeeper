@@ -1,6 +1,6 @@
 use std::{
     collections::{hash_map::Entry, HashMap},
-    io,
+    io::{self, Read},
 };
 
 use log::*;
@@ -19,18 +19,22 @@ impl Bookkeeper {
         }
     }
 
-    pub fn on_tx(&mut self, tx: &Transaction) -> Result<(), TxError> {
-        match self.accounts.entry(tx.client_id) {
-            Entry::Occupied(mut entry) => entry.get_mut().on_tx(tx)?,
-            Entry::Vacant(entry) => {
-                if tx.r#type == TxType::Deposit {
-                    let mut acct = Account::new(tx.client_id);
-                    acct.on_tx(tx)?;
-                    entry.insert(acct);
-                    info!("a new accout({}) is created", tx.client_id);
-                } else {
-                    return Err(TxError::InvalidClientError);
+    pub fn process_reader<R>(&mut self, r: R) -> Result<(), csv::Error>
+    where
+        R: Read,
+    {
+        let mut reader = csv::ReaderBuilder::new().trim(csv::Trim::All).from_reader(r);
+        let mut raw_record = csv::StringRecord::new();
+        let headers = reader.headers()?.clone();
+
+        while reader.read_record(&mut raw_record)? {
+            match raw_record.deserialize(Some(&headers)) {
+                Ok(tx) => {
+                    if let Some(e) = self.on_tx(&tx).err() {
+                        error!("failed to process transaction({:?}): {:?}", tx, e);
+                    }
                 }
+                Err(e) => error!("failed to deserialize transaction({:?}): {:?}", raw_record, e),
             }
         }
 
@@ -47,6 +51,24 @@ impl Bookkeeper {
         }
 
         writer.flush()?;
+
+        Ok(())
+    }
+
+    fn on_tx(&mut self, tx: &Transaction) -> Result<(), TxError> {
+        match self.accounts.entry(tx.client_id) {
+            Entry::Occupied(mut entry) => entry.get_mut().on_tx(tx)?,
+            Entry::Vacant(entry) => {
+                if tx.r#type == TxType::Deposit {
+                    let mut acct = Account::new(tx.client_id);
+                    acct.on_tx(tx)?;
+                    entry.insert(acct);
+                    info!("a new accout({}) is created", tx.client_id);
+                } else {
+                    return Err(TxError::InvalidClientError);
+                }
+            }
+        }
 
         Ok(())
     }

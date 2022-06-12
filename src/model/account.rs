@@ -59,7 +59,7 @@ pub struct Account {
     deposit_history: HashMap<u32, Deposit>,
 
     #[serde(skip_serializing)]
-    tx_history: HashSet<Transaction>, // TODO: basically we should store deposit_history/tx_history in database in Prod
+    withdrawal_history: HashMap<u32, Transaction>, // TODO: basically we should store deposit_history/withdrawal_history in database in Prod
 }
 
 impl Account {
@@ -71,7 +71,7 @@ impl Account {
             total_amount: Decimal::ZERO,
             locked: false,
             deposit_history: HashMap::with_capacity(DEFAULT_COUNT),
-            tx_history: HashSet::with_capacity(DEFAULT_COUNT),
+            withdrawal_history: HashMap::with_capacity(DEFAULT_COUNT),
         }
     }
 
@@ -120,12 +120,15 @@ impl Account {
         self.validate_account()?;
 
         let amount = Self::adjust_scale(&self.validate_withdraw(tx)?);
+
         if let Some(new_available) = self.available_amount.checked_sub(amount) {
             if new_available >= Decimal::ZERO {
                 if let Some(new_total) = self.total_amount.checked_sub(amount) {
                     if new_total >= Decimal::ZERO {
                         self.available_amount = new_available;
                         self.total_amount = new_total;
+
+                        self.withdrawal_history.insert(tx.tx_id, tx.clone());
                         return Ok(());
                     }
                 }
@@ -196,7 +199,7 @@ impl Account {
     }
 
     /// For simplicity, we dont check if it's duplciate or not. In prod, this could be done through a database.
-    fn validate_deposit(&mut self, tx: &Transaction) -> Result<Decimal, TxError> {
+    fn validate_deposit(&self, tx: &Transaction) -> Result<Decimal, TxError> {
         debug_assert!(tx.r#type == TxType::Deposit);
 
         let amount = Self::validate_amount(tx)?;
@@ -211,7 +214,7 @@ impl Account {
     }
 
     /// For simplicity, we dont check if it's duplciate or not. In prod, this could be done through a database.
-    fn validate_withdraw(&mut self, tx: &Transaction) -> Result<Decimal, TxError> {
+    fn validate_withdraw(&self, tx: &Transaction) -> Result<Decimal, TxError> {
         debug_assert!(tx.r#type == TxType::Withdrawal);
 
         let amount = Self::validate_amount(tx)?;
@@ -222,10 +225,14 @@ impl Account {
 
         // available_amount is alwayas <= total_amount, so we don't need to check total
 
+        if self.withdrawal_history.contains_key(&tx.tx_id) {
+            return Err(TxError::InvalidTxIdError);
+        }
+
         Ok(amount)
     }
 
-    fn validate_account(&mut self) -> Result<(), TxError> {
+    fn validate_account(&self) -> Result<(), TxError> {
         if self.locked {
             return Err(TxError::LockedAccountError);
         }
@@ -365,6 +372,11 @@ mod test {
 
         withdrawal.tx_id = 3;
         assert!(acct.on_tx(&withdrawal).err().unwrap() == TxError::InvalidAmountError);
+
+        // amounts are not changed after an insufficient withdrawal
+        assert!(acct.held_amount == Decimal::ZERO);
+        assert!(acct.available_amount == balance);
+        assert!(acct.total_amount == balance);
     }
 
     /// Check a normal flow: deposit(ok) -> dispute(ok) -> resolve (ok)
@@ -484,6 +496,33 @@ mod test {
 
         assert!(acct.on_tx(&deposit).is_ok());
         assert!(acct.on_tx(&deposit).err().unwrap() == TxError::InvalidTxIdError);
+    }
+
+    /// Check a flow: deposit(ok) -> duplicate withdrawal(failed)
+    #[test]
+    fn test_withdraw_duplicate() {
+        let client_id = 1;
+
+        let deposit = Transaction {
+            r#type: TxType::Deposit,
+            client_id,
+            tx_id: 1,
+            amount: Some(Decimal::from(10i16)),
+        };
+
+        let mut acct = Account::new(client_id);
+
+        assert!(acct.on_tx(&deposit).is_ok());
+
+        let withdrawal = Transaction {
+            r#type: TxType::Withdrawal,
+            client_id,
+            tx_id: 2,
+            amount: Some(Decimal::from(1i16)),
+        };
+        assert!(acct.on_tx(&withdrawal).is_ok());
+
+        assert!(acct.on_tx(&withdrawal).err().unwrap() == TxError::InvalidTxIdError);
     }
 
     /// Check a flow: deposit(failed)/withdrawal(failed)
