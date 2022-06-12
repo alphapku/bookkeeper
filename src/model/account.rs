@@ -11,7 +11,7 @@ use super::{Transaction, TxType};
 const DEFAULT_COUNT: usize = 8096;
 const MAX_DECIMAL_PLACES: u32 = 4;
 
-#[derive(Error, Debug)]
+#[derive(Error, Debug, PartialEq)]
 pub enum TxError {
     /// Happens when a non-deposit comes, but the client is unexisted
     #[error("invalid client")]
@@ -25,7 +25,7 @@ pub enum TxError {
     #[error("invalid amount")]
     InvalidAmountError,
 
-    /// Happens when ID is not found for dispute/resolve/chargeback
+    /// Happens when ID is not found, or duplicate for dispute/resolve/chargeback
     #[error("invalid Tx ID")]
     InvalidTxIdError,
 
@@ -40,14 +40,6 @@ pub enum TxError {
     /// Happens when trying to do transactions on transactions with unexpected statuses, e.g., resolving on an non-disputed transaction
     #[error("invalid operation")]
     InvalidOperatioonError,
-
-    /// Happens when failing to deserialize a transaction from csv record
-    #[error("invalid transaction")]
-    InvalidTxError(#[from] csv::Error),
-
-    /// Happens when failing to process I/O
-    #[error("I/O error")]
-    TxIoError(#[from] std::io::Error),
 }
 
 #[derive(Serialize)]
@@ -128,7 +120,6 @@ impl Account {
         self.validate_account()?;
 
         let amount = Self::adjust_scale(&self.validate_withdraw(tx)?);
-
         if let Some(new_available) = self.available_amount.checked_sub(amount) {
             if new_available >= Decimal::ZERO {
                 if let Some(new_total) = self.total_amount.checked_sub(amount) {
@@ -186,7 +177,6 @@ impl Account {
 
     fn on_chargeback(&mut self, tx: &Transaction) -> Result<(), TxError> {
         debug!("{:?}", tx);
-
         self.validate_account()?;
 
         let deposit = Self::validate_chargeback(&mut self.deposit_history, tx)?;
@@ -198,6 +188,7 @@ impl Account {
                 self.total_amount = new_total;
                 deposit.status = DepositStatus::ChargedBack;
                 self.locked = true; // TODO, how to unlock?
+                return Ok(());
             }
         }
 
@@ -225,7 +216,7 @@ impl Account {
 
         let amount = Self::validate_amount(tx)?;
 
-        if amount < self.available_amount {
+        if amount > self.available_amount {
             return Err(TxError::InvalidAmountError);
         }
 
@@ -327,14 +318,143 @@ mod test {
     use rust_decimal::Decimal;
     use std::str::FromStr;
 
-    use crate::model::{Account, Transaction};
+    use crate::model::{Account, Transaction, TxError, TxType};
 
+    /// Check a flow: deposit(ok) -> withdraw(ok) -> withdraw (failed)
+    #[test]
+    fn test_deposit_withdraw_invalida_withdraw() {
+        let client_id = 1;
+        let amount = Decimal::from(2i16);
+        let mut deposit = Transaction {
+            r#type: TxType::Deposit,
+            client_id,
+            tx_id: 1,
+            amount: Some(amount),
+        };
+
+        let mut acct = Account::new(client_id);
+
+        assert!(acct.on_tx(&deposit).is_ok());
+        assert!(acct.held_amount == Decimal::ZERO);
+        assert!(acct.available_amount == amount);
+        assert!(acct.total_amount == amount);
+
+        let amount2 = Decimal::new(9, 1);
+        deposit.tx_id = 2;
+        deposit.amount = Some(amount2);
+        assert!(acct.on_tx(&deposit).is_ok());
+
+        let total_amount = amount + amount2;
+        assert!(acct.held_amount == Decimal::ZERO);
+        assert!(acct.available_amount == total_amount);
+        assert!(acct.total_amount == total_amount);
+
+        let withdrawal_amount = Decimal::new(15, 1);
+        let balance = total_amount - withdrawal_amount;
+        let mut withdrawal = Transaction {
+            r#type: TxType::Withdrawal,
+            client_id,
+            tx_id: 3,
+            amount: Some(withdrawal_amount),
+        };
+
+        assert!(acct.on_tx(&withdrawal).is_ok());
+        assert!(acct.held_amount == Decimal::ZERO);
+        assert!(acct.available_amount == balance);
+        assert!(acct.total_amount == balance);
+
+        withdrawal.tx_id = 3;
+        assert!(acct.on_tx(&withdrawal).err().unwrap() == TxError::InvalidAmountError);
+    }
+
+    /// Check a normal flow: deposit(ok) -> dispute(ok) -> resolve (ok)
+    #[test]
+    fn test_dispute_resolve() {
+        let client_id = 1;
+        let amount = Decimal::from(2i16);
+
+        let deposit = Transaction {
+            r#type: TxType::Deposit,
+            client_id,
+            tx_id: 1,
+            amount: Some(amount),
+        };
+
+        let mut acct = Account::new(client_id);
+
+        assert!(acct.on_tx(&deposit).is_ok());
+
+        let dispute = Transaction {
+            r#type: TxType::Dispute,
+            client_id,
+            tx_id: 1,
+            amount: None,
+        };
+
+        assert!(acct.on_tx(&dispute).is_ok());
+        assert!(acct.held_amount == amount);
+        assert!(acct.available_amount == amount - amount);
+        assert!(acct.total_amount == amount);
+
+        let resolve = Transaction {
+            r#type: TxType::Resolve,
+            client_id,
+            tx_id: 1,
+            amount: None,
+        };
+
+        assert!(acct.on_tx(&resolve).is_ok());
+        assert!(acct.held_amount == Decimal::ZERO);
+        assert!(acct.available_amount == amount);
+        assert!(acct.total_amount == amount);
+    }
+
+    /// Check a normal flow: deposit(ok) -> dispute(ok) -> chargeback (ok)
+    #[test]
+    fn test_dispute_chargeback() {
+        let client_id = 1;
+        let amount = Decimal::from(2i16);
+
+        let deposit = Transaction {
+            r#type: TxType::Deposit,
+            client_id,
+            tx_id: 1,
+            amount: Some(amount),
+        };
+
+        let mut acct = Account::new(client_id);
+
+        assert!(acct.on_tx(&deposit).is_ok());
+
+        let dispute = Transaction {
+            r#type: TxType::Dispute,
+            client_id,
+            tx_id: 1,
+            amount: None,
+        };
+
+        assert!(acct.on_tx(&dispute).is_ok());
+
+        let chargeback = Transaction {
+            r#type: TxType::ChargeBack,
+            client_id,
+            tx_id: 1,
+            amount: None,
+        };
+
+        assert!(acct.on_tx(&chargeback).is_ok());
+        assert!(acct.held_amount == Decimal::ZERO);
+        assert!(acct.available_amount == Decimal::ZERO);
+        assert!(acct.total_amount == Decimal::ZERO);
+    }
+
+    /// Check a flow: deposit(failed)
     #[test]
     fn test_deposit_invalid_amount() {
         let client_id = 1;
 
         let mut deposit = Transaction {
-            r#type: crate::model::TxType::Deposit,
+            r#type: TxType::Deposit,
             client_id,
             tx_id: 1,
             amount: Some(Decimal::from(0i16)),
@@ -345,15 +465,16 @@ mod test {
         assert!(acct.on_tx(&deposit).is_err());
 
         deposit.amount = Some(Decimal::from_str("-0.001").unwrap());
-        assert!(acct.on_tx(&deposit).is_err());
+        assert!(acct.on_tx(&deposit).err().unwrap() == TxError::InvalidAmountError);
     }
 
+    /// Check a flow: deposit(ok) -> duplicate deposit(failed)
     #[test]
     fn test_deposit_duplicate() {
         let client_id = 1;
 
         let deposit = Transaction {
-            r#type: crate::model::TxType::Deposit,
+            r#type: TxType::Deposit,
             client_id,
             tx_id: 1,
             amount: Some(Decimal::from(1i16)),
@@ -362,6 +483,101 @@ mod test {
         let mut acct = Account::new(client_id);
 
         assert!(acct.on_tx(&deposit).is_ok());
-        assert!(acct.on_tx(&deposit).is_err());
+        assert!(acct.on_tx(&deposit).err().unwrap() == TxError::InvalidTxIdError);
+    }
+
+    /// Check a flow: deposit(failed)/withdrawal(failed)
+    #[test]
+    fn test_missing_amount() {
+        let client_id = 1;
+
+        let deposit = Transaction {
+            r#type: TxType::Deposit,
+            client_id,
+            tx_id: 1,
+            amount: None,
+        };
+
+        let mut acct = Account::new(client_id);
+
+        assert!(acct.on_tx(&deposit).err().unwrap() == TxError::MissingAmountError);
+
+        let withdrawal = Transaction {
+            r#type: TxType::Withdrawal,
+            client_id,
+            tx_id: 2,
+            amount: None,
+        };
+
+        assert!(acct.on_tx(&withdrawal).err().unwrap() == TxError::MissingAmountError);
+    }
+
+    /// Check a flow: locked account -> can't operate on locked account
+    #[test]
+    fn test_locked_account() {
+        let client_id = 1;
+
+        let mut deposit = Transaction {
+            r#type: TxType::Deposit,
+            client_id,
+            tx_id: 1,
+            amount: Some(Decimal::from(1i16)),
+        };
+
+        let mut acct = Account::new(client_id);
+
+        assert!(acct.on_tx(&deposit).is_ok());
+
+        let dispute = Transaction {
+            r#type: TxType::Dispute,
+            client_id,
+            tx_id: 1,
+            amount: None,
+        };
+
+        assert!(acct.on_tx(&dispute).is_ok());
+
+        let chargeback = Transaction {
+            r#type: TxType::ChargeBack,
+            client_id,
+            tx_id: 1,
+            amount: None,
+        };
+
+        assert!(acct.on_tx(&chargeback).is_ok());
+
+        assert!(acct.locked);
+
+        deposit.tx_id = 2;
+        assert!(acct.on_tx(&deposit).err().unwrap() == TxError::LockedAccountError);
+    }
+
+    /// Check a flow: try to resolve/chargeback on a non-disputed transaction
+    #[test]
+    fn test_invalid_operation() {
+        let client_id = 1;
+
+        let deposit = Transaction {
+            r#type: TxType::Deposit,
+            client_id,
+            tx_id: 1,
+            amount: Some(Decimal::from(1i16)),
+        };
+
+        let mut acct = Account::new(client_id);
+
+        assert!(acct.on_tx(&deposit).is_ok());
+
+        let mut invalid_op = Transaction {
+            r#type: TxType::Resolve,
+            client_id,
+            tx_id: 1,
+            amount: None,
+        };
+
+        assert!(acct.on_tx(&invalid_op).err().unwrap() == TxError::InvalidOperatioonError);
+
+        invalid_op.r#type = TxType::ChargeBack;
+        assert!(acct.on_tx(&invalid_op).err().unwrap() == TxError::InvalidOperatioonError);
     }
 }

@@ -37,16 +37,16 @@ impl Bookkeeper {
         Ok(())
     }
 
-    pub fn report_balance(&self) -> Result<(), TxError> {
+    pub fn report_balance(&self) -> Result<(), csv::Error> {
         info!("{} account(s)", self.accounts.len());
 
         let mut writer = csv::Writer::from_writer(io::stdout());
 
         for acct in self.accounts.values() {
-            writer.serialize(acct).map_err(TxError::InvalidTxError)?;
+            writer.serialize(acct)?;
         }
 
-        writer.flush().map_err(TxError::TxIoError)?;
+        writer.flush()?;
 
         Ok(())
     }
@@ -55,5 +55,25 @@ impl Bookkeeper {
 impl Default for Bookkeeper {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use crate::model::{Bookkeeper, Transaction, TxError, TxType};
+
+    #[test]
+    fn test_client_invalid() {
+        let client_id = 1;
+
+        let dispute = Transaction {
+            r#type: TxType::Dispute,
+            client_id,
+            tx_id: 1,
+            amount: None,
+        };
+
+        let mut bkeeper = Bookkeeper::new();
+        assert!(bkeeper.on_tx(&dispute).err().unwrap() == TxError::InvalidClientError);
     }
 }
