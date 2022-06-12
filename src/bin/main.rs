@@ -18,22 +18,9 @@ fn main() -> Result<()> {
     }
 
     let f = File::open(get_first_arg()?)?;
-    let mut reader = csv::ReaderBuilder::new().trim(csv::Trim::All).from_reader(BufReader::new(f));
-    let mut raw_record = csv::StringRecord::new();
-    let headers = reader.headers()?.clone();
 
     let mut keeper = Bookkeeper::default();
-    while reader.read_record(&mut raw_record)? {
-        match raw_record.deserialize(Some(&headers)) {
-            Ok(tx) => {
-                if let Some(e) = keeper.on_tx(&tx).err() {
-                    error!("failed to process transaction({:?}): {:?}", tx, e);
-                }
-            }
-            Err(e) => error!("failed to deserialize transaction({:?}): {:?}", raw_record, e),
-        }
-    }
-
+    keeper.process_reader(BufReader::new(f))?;
     keeper.report_balance()?;
 
     Ok(())
