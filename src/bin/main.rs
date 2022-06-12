@@ -1,11 +1,9 @@
-use core::result::Result::Ok;
 use std::env;
 use std::ffi::OsString;
 use std::fs::File;
 use std::io::{BufReader, Error, ErrorKind};
 
 use anyhow::*;
-
 use log::*;
 
 use bkeeper::model::Bookkeeper;
