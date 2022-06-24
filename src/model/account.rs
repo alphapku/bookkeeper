@@ -103,7 +103,7 @@ impl Account {
                     tx.tx_id,
                     Deposit {
                         amount,
-                        status: DepositStatus::Normal,
+                        status: DepositStatus::None,
                     },
                 );
 
@@ -148,10 +148,12 @@ impl Account {
 
         if let Some(new_held) = self.held_amount.checked_add(amount) {
             if let Some(new_available) = self.available_amount.checked_sub(amount) {
-                deposit.status = DepositStatus::Disputed;
-                self.held_amount = new_held;
-                self.available_amount = new_available;
-                return Ok(());
+                if new_available >= Decimal::ZERO {
+                    deposit.status = DepositStatus::Disputed;
+                    self.held_amount = new_held;
+                    self.available_amount = new_available;
+                    return Ok(());
+                }
             }
         }
 
@@ -168,10 +170,12 @@ impl Account {
 
         if let Some(new_held) = self.held_amount.checked_sub(amount) {
             if let Some(new_available) = self.available_amount.checked_add(amount) {
-                self.held_amount = new_held;
-                self.available_amount = new_available;
-                deposit.status = DepositStatus::Resolved;
-                return Ok(());
+                if new_held >= Decimal::ZERO {
+                    self.held_amount = new_held;
+                    self.available_amount = new_available;
+                    deposit.status = DepositStatus::None;
+                    return Ok(());
+                }
             }
         }
 
@@ -187,11 +191,13 @@ impl Account {
 
         if let Some(new_held) = self.held_amount.checked_sub(amount) {
             if let Some(new_total) = self.total_amount.checked_sub(amount) {
-                self.held_amount = new_held;
-                self.total_amount = new_total;
-                deposit.status = DepositStatus::ChargedBack;
-                self.locked = true; // TODO, how to unlock?
-                return Ok(());
+                if new_held >= Decimal::ZERO && new_total >= Decimal::ZERO {
+                    self.held_amount = new_held;
+                    self.total_amount = new_total;
+                    deposit.status = DepositStatus::ChargedBack;
+                    self.locked = true; // TODO, how to unlock?
+                    return Ok(());
+                }
             }
         }
 
@@ -208,7 +214,7 @@ impl Account {
             return Err(TxError::InvalidTxIdError);
         }
 
-        debug!("checking {} for {}", tx.client_id, tx.tx_id);
+        debug!("checked {} for client{}", tx.tx_id, tx.client_id);
 
         Ok(amount)
     }
@@ -266,7 +272,7 @@ impl Account {
         debug_assert!(tx.r#type == TxType::Dispute);
 
         if let Some(deposit) = history.get_mut(&tx.tx_id) {
-            if deposit.status != DepositStatus::Normal {
+            if deposit.status != DepositStatus::None {
                 return Err(TxError::InvalidOperatioonError);
             }
 
@@ -309,9 +315,8 @@ impl Account {
 
 #[derive(PartialEq)]
 enum DepositStatus {
-    Normal,
+    None,
     Disputed,
-    Resolved,
     ChargedBack,
 }
 

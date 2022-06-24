@@ -27,15 +27,17 @@ impl Bookkeeper {
         let mut reader = csv::ReaderBuilder::new().trim(csv::Trim::All).from_reader(r);
         let mut raw_record = csv::StringRecord::new();
         let headers = reader.headers()?.clone();
+        let trimed_headers = trim_string_record(&headers);
 
         while reader.read_record(&mut raw_record)? {
-            match raw_record.deserialize(Some(&headers)) {
+            let trimed_raw_record = trim_string_record(&raw_record);
+            match trimed_raw_record.deserialize(Some(&trimed_headers)) {
                 Ok(tx) => {
                     if let Some(e) = self.on_tx(&tx).err() {
                         error!("failed to process transaction({:?}): {:?}", tx, e);
                     }
                 }
-                Err(e) => error!("failed to deserialize transaction({:?}): {:?}", raw_record, e),
+                Err(e) => error!("failed to deserialize transaction({:?}): {:?}", trimed_raw_record, e),
             }
         }
 
@@ -57,21 +59,7 @@ impl Bookkeeper {
     }
 
     fn on_tx(&mut self, tx: &Transaction) -> Result<(), TxError> {
-        match self.accounts.entry(tx.client_id) {
-            Entry::Occupied(mut entry) => entry.get_mut().on_tx(tx)?,
-            Entry::Vacant(entry) => {
-                if tx.r#type == TxType::Deposit {
-                    let mut acct = Account::new(tx.client_id);
-                    acct.on_tx(tx)?;
-                    entry.insert(acct);
-                    info!("a new accout({}) is created", tx.client_id);
-                } else {
-                    return Err(TxError::InvalidClientError);
-                }
-            }
-        }
-
-        Ok(())
+        self.accounts.entry(tx.client_id).or_insert(Account::new(tx.client_id)).on_tx(tx)
     }
 }
 
@@ -79,6 +67,17 @@ impl Default for Bookkeeper {
     fn default() -> Self {
         Self::new()
     }
+}
+
+/// trim_string_record removes all the spaces in the input
+fn trim_string_record(s: &csv::StringRecord) -> csv::StringRecord {
+    let mut trimed_string_record = csv::StringRecord::new();
+    for field in s {
+        let mut f = field.to_string();
+        f.retain(|c| !c.is_whitespace());
+        trimed_string_record.push_field(&f[..]);
+    }
+    trimed_string_record
 }
 
 #[cfg(test)]
