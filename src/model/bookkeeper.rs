@@ -96,6 +96,8 @@ mod test {
         };
 
         let mut bkeeper = Bookkeeper::new();
-        assert!(bkeeper.on_tx(&dispute).err().unwrap() == TxError::InvalidClientError);
+        bkeeper.on_tx(&dispute);
+        assert!(bkeeper.accounts.len() == 1);
+        assert!(bkeeper.accounts.get(&client_id).is_some());
     }
 }
