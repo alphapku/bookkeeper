@@ -1,5 +1,5 @@
 use std::{
-    collections::{hash_map::Entry, HashMap},
+    collections::HashMap,
     io::{self, Read},
 };
 
@@ -96,7 +96,7 @@ mod test {
         };
 
         let mut bkeeper = Bookkeeper::new();
-        bkeeper.on_tx(&dispute);
+        assert!(bkeeper.on_tx(&dispute).err().unwrap() == TxError::InvalidTxIdError);
         assert!(bkeeper.accounts.len() == 1);
         assert!(bkeeper.accounts.get(&client_id).is_some());
     }
